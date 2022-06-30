@@ -97,6 +97,7 @@ from rest_framework.viewsets import GenericViewSet
  然后在调用authenticate，并且返回值应该是两个，第一个给user, 第二个给auth
  
  这就是为什么drf定义的 BASE authenticator 必须写 authenticate方法，
+ 如果认证的过程中抛出了APIException，那么就是认证失败，直接返回了
  
  ```python3
      def _authenticate(self):
@@ -118,5 +119,51 @@ from rest_framework.viewsets import GenericViewSet
 
         self._not_authenticated()
  ```
+ 
+ 接下来看drf的权限验证
+ 
+ ```python3
+     def check_permissions(self, request):
+        """
+        Check if the request should be permitted.
+        Raises an appropriate exception if the request is not permitted.
+        """
+        for permission in self.get_permissions():
+            if not permission.has_permission(request, self):
+                self.permission_denied(
+                    request,
+                    message=getattr(permission, 'message', None),
+                    code=getattr(permission, 'code', None)
+                )
+ ```
+ 
+ 权限验证很简单，就是拿到permission_classes的内容，然后逐个调用 has_permission ，如果其中有一个返回False，那么直接异常
+ 
+ 接下来就是频率控制
+ ```python3
+     def check_throttles(self, request):
+        """
+        Check if request should be throttled.
+        Raises an appropriate exception if the request is throttled.
+        """
+        throttle_durations = []
+        for throttle in self.get_throttles():
+            if not throttle.allow_request(request, self):
+                throttle_durations.append(throttle.wait())
+
+        if throttle_durations:
+            # Filter out `None` values which may happen in case of config / rate
+            # changes, see #1438
+            durations = [
+                duration for duration in throttle_durations
+                if duration is not None
+            ]
+
+            duration = max(durations, default=None)
+            self.throttled(request, duration)
+ ```
+ 接下来就是一个反射的机制，进入视图了
+ 中途如果有报错的话，会被handle_exception所捕捉，
+ 
  
  
