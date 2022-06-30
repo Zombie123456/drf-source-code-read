@@ -22,9 +22,6 @@ from rest_framework.viewsets import GenericViewSet
  ```
  
  ViewSetMixin  主要重写了as_view方法，该方法是用于Django CBV 的方式，在DRF中routers也会调用viewset的as_view方法，
- ```python3
-
- ```
  
  可以看到,最终的返回值为内嵌view，并且内嵌view的返回值为 self.dispatch, 但是 ViewSetMixin 没有 dispatch 方法
  
@@ -69,8 +66,8 @@ from rest_framework.viewsets import GenericViewSet
         parser_context = self.get_parser_context(request)
         return Request(
             request,
-            parsers=self.get_parsers(),
-            authenticators=self.get_authenticators(),
+            parsers=self.get_parsers(),  # 解析器
+            authenticators=self.get_authenticators(),  # 认证器
             negotiator=self.get_content_negotiator(),
             parser_context=parser_context
         )
@@ -78,7 +75,48 @@ from rest_framework.viewsets import GenericViewSet
  
  接下来接续看 dispatch ,关键点：
  ```python3
- self.initial(request, *args, **kwargs)
+ self.initial(request, *args, **kwargs) # 中最后三行，分别执行了 认证，权限，频率控制
+ ```
+ 
+ 来看认证, 只执行了一个request.user，我们要知道这个request已经drf包装后的request的，所以我们继续看request.user
+ 
+ ```python3
+     def perform_authentication(self, request):
+        """
+        Perform authentication on the incoming request.
+
+        Note that if you override this and simply 'pass', then authentication
+        will instead be performed lazily, the first time either
+        `request.user` or `request.auth` is accessed.
+        """
+        request.user
+ ```
+ 
+ 可以看到 request.user 中 调用了 _authenticate,而 _authenticate 使用了之前包装的时候传进来的authenticators，
+ 
+ 然后在调用authenticate，并且返回值应该是两个，第一个给user, 第二个给auth
+ 
+ 这就是为什么drf定义的 BASE authenticator 必须写 authenticate方法，
+ 
+ ```python3
+     def _authenticate(self):
+        """
+        Attempt to authenticate the request using each authentication instance
+        in turn.
+        """
+        for authenticator in self.authenticators:
+            try:
+                user_auth_tuple = authenticator.authenticate(self)
+            except exceptions.APIException:
+                self._not_authenticated()
+                raise
+
+            if user_auth_tuple is not None:
+                self._authenticator = authenticator
+                self.user, self.auth = user_auth_tuple
+                return
+
+        self._not_authenticated()
  ```
  
  
